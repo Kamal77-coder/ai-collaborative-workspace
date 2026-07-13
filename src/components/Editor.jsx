@@ -66,7 +66,15 @@ export default function Editor({
             className="editor-textarea"
             value={doc.content}
             placeholder="Start writing, or ask the assistant to draft something…"
-            onChange={(e) => onContentChange(e.target.value)}
+            onChange={(e) => {
+              // Update content AND the caret together, so the selection-sync
+              // effect doesn't yank the cursor back to a stale position.
+              onSelectionChange({
+                start: e.target.selectionStart,
+                end: e.target.selectionEnd,
+              });
+              onContentChange(e.target.value);
+            }}
             onSelect={syncSelection}
             onKeyUp={syncSelection}
             onClick={syncSelection}

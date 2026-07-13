@@ -5,10 +5,20 @@ const NOTE_W = 190;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 2.2;
 
+const PEN_COLORS = ["#7c6cff", "#ec4899", "#10b981", "#f59e0b", "#ef4444", "#e6e8ee"];
+
+const TOOLS = [
+  { id: "select", icon: "⤢", label: "Select / pan" },
+  { id: "pen", icon: "✎", label: "Pen" },
+  { id: "rect", icon: "▭", label: "Rectangle" },
+  { id: "arrow", icon: "↗", label: "Arrow" },
+  { id: "eraser", icon: "⌫", label: "Eraser" },
+];
+
 /**
- * Infinite-ish whiteboard: pan the canvas, zoom, and drag/edit colored sticky
- * notes. Notes live in "world" coordinates; the canvas layer is translated and
- * scaled by `view`. Simulated teammate cursors drift across the surface.
+ * Infinite-ish whiteboard. Sticky notes AND freehand drawings live in "world"
+ * coordinates; the canvas layer is translated + scaled by `view`. A tool mode
+ * governs whether pointer input pans the canvas, draws, or erases.
  */
 export default function Board({
   board,
@@ -19,25 +29,75 @@ export default function Board({
   onUpdateNote,
   onDeleteNote,
   onRename,
+  onAddDrawing,
+  onDeleteDrawing,
+  onClearDrawings,
 }) {
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+  const [tool, setTool] = useState("select");
+  const [penColor, setPenColor] = useState(PEN_COLORS[0]);
+  const [draft, setDraft] = useState(null); // in-progress drawing (local only)
+
   const surfaceRef = useRef(null);
-  // Mutable drag state kept in a ref so listeners see fresh values.
   const drag = useRef(null);
 
-  /* ------------------------------------------------------- pan the canvas */
-  const onSurfaceMouseDown = (e) => {
-    if (e.target !== surfaceRef.current) return; // only when hitting the background
-    onSelectNote(null);
-    drag.current = {
-      mode: "pan",
-      startX: e.clientX,
-      startY: e.clientY,
-      origin: { ...view },
+  // Refs mirror state so the window listeners always read fresh values.
+  const viewRef = useRef(view);
+  const toolRef = useRef(tool);
+  const draftRef = useRef(draft);
+  const drawingsRef = useRef(board.drawings || []);
+  useEffect(() => void (viewRef.current = view), [view]);
+  useEffect(() => void (toolRef.current = tool), [tool]);
+  useEffect(() => void (draftRef.current = draft), [draft]);
+  useEffect(() => void (drawingsRef.current = board.drawings || []), [board.drawings]);
+
+  const drawingMode = tool !== "select";
+
+  const toWorld = (clientX, clientY) => {
+    const rect = surfaceRef.current.getBoundingClientRect();
+    const v = viewRef.current;
+    return {
+      x: (clientX - rect.left - v.x) / v.scale,
+      y: (clientY - rect.top - v.y) / v.scale,
     };
   };
 
-  /* ------------------------------------------------------- drag a note */
+  const eraseAt = (w) => {
+    const r = 14 / viewRef.current.scale;
+    for (const d of drawingsRef.current) {
+      if (hitTest(d, w, r)) onDeleteDrawing(d.id);
+    }
+  };
+
+  /* ------------------------------------------------------- interactions */
+  const onSurfaceMouseDown = (e) => {
+    if (e.button !== 0) return;
+
+    if (tool === "select") {
+      if (e.target !== surfaceRef.current) return; // notes handle themselves
+      onSelectNote(null);
+      drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, origin: { ...view } };
+      return;
+    }
+
+    // Drawing tools: notes are non-interactive (pointer-events:none) so the
+    // event always lands on the surface.
+    const w = toWorld(e.clientX, e.clientY);
+    if (tool === "eraser") {
+      drag.current = { mode: "erase" };
+      eraseAt(w);
+      return;
+    }
+    if (tool === "pen") {
+      setDraft({ kind: "path", color: penColor, width: 3, points: [w] });
+    } else if (tool === "rect") {
+      setDraft({ kind: "rect", color: penColor, x: w.x, y: w.y, w: 0, h: 0, _sx: w.x, _sy: w.y });
+    } else if (tool === "arrow") {
+      setDraft({ kind: "arrow", color: penColor, x1: w.x, y1: w.y, x2: w.x, y2: w.y });
+    }
+    drag.current = { mode: "draw" };
+  };
+
   const startNoteDrag = (e, note) => {
     e.stopPropagation();
     onSelectNote(note.id);
@@ -61,23 +121,60 @@ export default function Board({
           y: d.origin.y + (e.clientY - d.startY),
         }));
       } else if (d.mode === "note") {
-        const dx = (e.clientX - d.startX) / view.scale;
-        const dy = (e.clientY - d.startY) / view.scale;
-        onUpdateNote(d.id, { x: d.origin.x + dx, y: d.origin.y + dy });
+        const s = viewRef.current.scale;
+        onUpdateNote(d.id, {
+          x: d.origin.x + (e.clientX - d.startX) / s,
+          y: d.origin.y + (e.clientY - d.startY) / s,
+        });
+      } else if (d.mode === "draw") {
+        const w = toWorld(e.clientX, e.clientY);
+        setDraft((prev) => {
+          if (!prev) return prev;
+          if (prev.kind === "path") return { ...prev, points: [...prev.points, w] };
+          if (prev.kind === "rect")
+            return {
+              ...prev,
+              x: Math.min(prev._sx, w.x),
+              y: Math.min(prev._sy, w.y),
+              w: Math.abs(w.x - prev._sx),
+              h: Math.abs(w.y - prev._sy),
+            };
+          if (prev.kind === "arrow") return { ...prev, x2: w.x, y2: w.y };
+          return prev;
+        });
+      } else if (d.mode === "erase") {
+        eraseAt(toWorld(e.clientX, e.clientY));
       }
     };
-    const onUp = () => (drag.current = null);
+    const onUp = () => {
+      const d = drag.current;
+      drag.current = null;
+      if (d && d.mode === "draw") {
+        const cur = draftRef.current;
+        setDraft(null);
+        if (cur) commitDrawing(cur);
+      }
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [view.scale, onUpdateNote]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onUpdateNote, onDeleteDrawing]);
 
-  /* ------------------------------------------------------- zoom (wheel) */
+  const commitDrawing = (d) => {
+    if (d.kind === "path" && d.points.length < 2) return;
+    if (d.kind === "rect" && d.w < 4 && d.h < 4) return;
+    if (d.kind === "arrow" && Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 4) return;
+    const { _sx, _sy, ...clean } = d;
+    onAddDrawing(clean);
+  };
+
+  /* ------------------------------------------------------- zoom / notes */
   const onWheel = (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return; // let normal scroll pass through
+    if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     zoomAt(e.deltaY < 0 ? 1.1 : 0.9, e.clientX, e.clientY);
   };
@@ -93,21 +190,25 @@ export default function Board({
     });
   };
 
-  /* ------------------------------------------------------- add a note */
   const addAtCenter = () => {
     const rect = surfaceRef.current.getBoundingClientRect();
-    const x = (rect.width / 2 - view.x) / view.scale - NOTE_W / 2;
-    const y = (rect.height / 2 - view.y) / view.scale - 40;
-    onAddNote({ x, y });
+    onAddNote({
+      x: (rect.width / 2 - view.x) / view.scale - NOTE_W / 2,
+      y: (rect.height / 2 - view.y) / view.scale - 40,
+    });
   };
 
   const onSurfaceDoubleClick = (e) => {
-    if (e.target !== surfaceRef.current) return;
+    if (tool !== "select" || e.target !== surfaceRef.current) return;
     const rect = surfaceRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left - view.x) / view.scale - NOTE_W / 2;
-    const y = (e.clientY - rect.top - view.y) / view.scale - 40;
-    onAddNote({ x, y });
+    onAddNote({
+      x: (e.clientX - rect.left - view.x) / view.scale - NOTE_W / 2,
+      y: (e.clientY - rect.top - view.y) / view.scale - 40,
+    });
   };
+
+  const drawings = board.drawings || [];
+  const renderList = draft ? [...drawings, draft] : drawings;
 
   return (
     <main className="board">
@@ -118,10 +219,38 @@ export default function Board({
           placeholder="Untitled board"
           onChange={(e) => onRename(e.target.value)}
         />
+
         <div className="board-tools">
+          <div className="tool-group">
+            {TOOLS.map((t) => (
+              <button
+                key={t.id}
+                className={`tool-btn ${tool === t.id ? "active" : ""}`}
+                title={t.label}
+                onClick={() => setTool(t.id)}
+              >
+                {t.icon}
+              </button>
+            ))}
+          </div>
+
+          {tool !== "select" && tool !== "eraser" && (
+            <div className="pen-palette">
+              {PEN_COLORS.map((c) => (
+                <button
+                  key={c}
+                  className={`pen-swatch ${penColor === c ? "active" : ""}`}
+                  style={{ background: c }}
+                  onClick={() => setPenColor(c)}
+                />
+              ))}
+            </div>
+          )}
+
           <button className="btn tiny" onClick={addAtCenter}>
             ＋ Note
           </button>
+
           <div className="zoom-controls">
             <button className="icon-btn" onClick={() => zoomAt(0.9)} title="Zoom out">
               −
@@ -138,23 +267,42 @@ export default function Board({
               ⤢
             </button>
           </div>
-          <span className="board-count">{board.nodes.length} notes</span>
+
+          {drawings.length > 0 && (
+            <button
+              className="btn tiny ghost"
+              onClick={() => confirm("Clear all drawings?") && onClearDrawings()}
+              title="Clear drawings"
+            >
+              Clear ink
+            </button>
+          )}
+
+          <span className="board-count">
+            {board.nodes.length} notes · {drawings.length} drawings
+          </span>
         </div>
       </div>
 
       <div
         ref={surfaceRef}
-        className="board-surface"
+        className={`board-surface ${drawingMode ? "drawing" : ""} ${
+          tool === "eraser" ? "erasing" : ""
+        }`}
         onMouseDown={onSurfaceMouseDown}
         onDoubleClick={onSurfaceDoubleClick}
         onWheel={onWheel}
       >
         <div
           className="board-layer"
-          style={{
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-          }}
+          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
         >
+          <svg className="draw-layer" width="1" height="1">
+            {renderList.map((d, i) => (
+              <Drawing key={d.id || `draft-${i}`} d={d} />
+            ))}
+          </svg>
+
           {board.nodes.map((note) => (
             <Note
               key={note.id}
@@ -169,14 +317,62 @@ export default function Board({
 
         <Cursors surfaceRef={surfaceRef} presence={presence} />
 
-        {board.nodes.length === 0 && (
+        {board.nodes.length === 0 && drawings.length === 0 && (
           <div className="board-hint">
-            Double-click anywhere to add a note, or use the AI panel to generate ideas →
+            Pick a tool to draw, double-click to add a note, or use the AI panel →
           </div>
         )}
       </div>
     </main>
   );
+}
+
+/* --------------------------------------------------------------- drawings */
+
+function Drawing({ d }) {
+  if (d.kind === "path") {
+    const dAttr = d.points
+      .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(" ");
+    return (
+      <path
+        d={dAttr}
+        fill="none"
+        stroke={d.color}
+        strokeWidth={d.width || 3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    );
+  }
+  if (d.kind === "rect") {
+    return (
+      <rect
+        x={d.x}
+        y={d.y}
+        width={d.w}
+        height={d.h}
+        rx="6"
+        fill="none"
+        stroke={d.color}
+        strokeWidth="2.5"
+      />
+    );
+  }
+  if (d.kind === "arrow") {
+    const angle = Math.atan2(d.y2 - d.y1, d.x2 - d.x1);
+    const h = 12;
+    const a1 = angle - Math.PI / 7;
+    const a2 = angle + Math.PI / 7;
+    return (
+      <g stroke={d.color} strokeWidth="2.5" fill="none" strokeLinecap="round">
+        <line x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} />
+        <line x1={d.x2} y1={d.y2} x2={d.x2 - h * Math.cos(a1)} y2={d.y2 - h * Math.sin(a1)} />
+        <line x1={d.x2} y1={d.y2} x2={d.x2 - h * Math.cos(a2)} y2={d.y2 - h * Math.sin(a2)} />
+      </g>
+    );
+  }
+  return null;
 }
 
 /* ----------------------------------------------------------------- a note */
@@ -287,6 +483,35 @@ function Cursors({ surfaceRef, presence }) {
 /* ------------------------------------------------------------------ utils */
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+// Is world point `w` within radius `r` of drawing `d`?
+function hitTest(d, w, r) {
+  if (d.kind === "path") {
+    return d.points.some((p) => Math.hypot(p.x - w.x, p.y - w.y) <= r + (d.width || 3));
+  }
+  if (d.kind === "rect") {
+    return (
+      w.x >= d.x - r &&
+      w.x <= d.x + d.w + r &&
+      w.y >= d.y - r &&
+      w.y <= d.y + d.h + r
+    );
+  }
+  if (d.kind === "arrow") {
+    return pointSegDist(w, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }) <= r + 3;
+  }
+  return false;
+}
+
+function pointSegDist(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = clamp(t, 0, 1);
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
 
 // Slightly darken a hex color for the note's color dot.
 function shade(hex) {

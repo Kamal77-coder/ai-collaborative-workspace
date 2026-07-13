@@ -512,7 +512,50 @@ select:focus,
 .board-tools {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tool-group {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+}
+.tool-btn {
+  width: 30px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+}
+.tool-btn:hover {
+  color: var(--text);
+  background: var(--bg-elev);
+}
+.tool-btn.active {
+  background: var(--accent-2);
+  color: #fff;
+}
+.pen-palette {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.pen-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.pen-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-elev);
 }
 .zoom-controls {
   display: flex;
@@ -552,6 +595,23 @@ select:focus,
   top: 0;
   left: 0;
   transform-origin: 0 0;
+}
+.board-surface.drawing {
+  cursor: crosshair;
+}
+.board-surface.erasing {
+  cursor: cell;
+}
+/* While a drawing tool is active, notes must not intercept pointer input. */
+.board-surface.drawing .note {
+  pointer-events: none;
+}
+.draw-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
 }
 .board-hint {
   position: absolute;

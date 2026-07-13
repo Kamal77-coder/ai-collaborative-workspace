@@ -274,6 +274,31 @@ export default function App() {
   const selectedNote =
     activeBoard?.nodes.find((n) => n.id === selectedNoteId) || null;
 
+  /* ----------------------------------------------------- board drawings */
+
+  const addDrawing = useCallback(
+    (drawing) =>
+      patchActiveBoard((b) => ({
+        ...b,
+        drawings: [...(b.drawings || []), { id: uid("d"), ...drawing }],
+      })),
+    [patchActiveBoard]
+  );
+
+  const deleteDrawing = useCallback(
+    (id) =>
+      patchActiveBoard((b) => ({
+        ...b,
+        drawings: (b.drawings || []).filter((d) => d.id !== id),
+      })),
+    [patchActiveBoard]
+  );
+
+  const clearDrawings = useCallback(
+    () => patchActiveBoard((b) => ({ ...b, drawings: [] })),
+    [patchActiveBoard]
+  );
+
   /* ---------------------------------------------------------------- comments */
 
   const addComment = useCallback(
@@ -359,6 +384,9 @@ export default function App() {
               onUpdateNote={updateNote}
               onDeleteNote={deleteNote}
               onRename={renameBoard}
+              onAddDrawing={addDrawing}
+              onDeleteDrawing={deleteDrawing}
+              onClearDrawings={clearDrawings}
             />
           ) : (
             <main className="editor empty-state">

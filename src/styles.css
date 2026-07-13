@@ -809,6 +809,27 @@ select:focus,
 .note-del:hover {
   color: #b91c1c;
 }
+.note-edit {
+  background: none;
+  border: none;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.note-edit:hover {
+  color: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.08);
+}
+.note-edit.active {
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(0, 0, 0, 0.85);
+}
+.note.editing {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
 .note-text {
   flex: 1;
   border: none;
@@ -823,6 +844,9 @@ select:focus,
 }
 .note-text::placeholder {
   color: rgba(0, 0, 0, 0.35);
+}
+.note-text[readonly] {
+  cursor: default;
 }
 .note-palette {
   display: flex;

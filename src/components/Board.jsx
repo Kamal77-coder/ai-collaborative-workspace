@@ -376,34 +376,55 @@ function Drawing({ d }) {
 
 function Note({ note, selected, onDragStart, onChange, onDelete }) {
   const [showColors, setShowColors] = useState(false);
+  // Notes are read-only until you enter edit mode via the ✎ icon (or a
+  // double-click). This stops stray clicks from typing into the note.
+  const [editing, setEditing] = useState(false);
+  const textRef = useRef(null);
+
+  useEffect(() => {
+    if (editing && textRef.current) {
+      const el = textRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [editing]);
+
+  const stop = (e) => e.stopPropagation();
+
   return (
     <div
-      className={`note ${selected ? "selected" : ""}`}
+      className={`note ${selected ? "selected" : ""} ${editing ? "editing" : ""}`}
       style={{ left: note.x, top: note.y, background: note.color, width: NOTE_W }}
     >
       <div className="note-bar" onMouseDown={onDragStart}>
         <button
+          className={`note-edit ${editing ? "active" : ""}`}
+          onMouseDown={stop}
+          onClick={(e) => {
+            stop(e);
+            setEditing((v) => !v);
+          }}
+          title={editing ? "Done editing" : "Edit note"}
+        >
+          ✎
+        </button>
+        <button
           className="note-color"
           style={{ background: shade(note.color) }}
           onClick={(e) => {
-            e.stopPropagation();
+            stop(e);
             setShowColors((s) => !s);
           }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={stop}
           title="Color"
         />
         <span className="note-grip">⠿</span>
-        <button
-          className="note-del"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={onDelete}
-          title="Delete note"
-        >
+        <button className="note-del" onMouseDown={stop} onClick={onDelete} title="Delete note">
           ✕
         </button>
       </div>
       {showColors && (
-        <div className="note-palette" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="note-palette" onMouseDown={stop}>
           {NOTE_COLORS.map((c) => (
             <button
               key={c}
@@ -417,11 +438,18 @@ function Note({ note, selected, onDragStart, onChange, onDelete }) {
         </div>
       )}
       <textarea
+        ref={textRef}
         className="note-text"
         value={note.text}
-        placeholder="Type an idea…"
+        placeholder={editing ? "Type an idea…" : "Click ✎ to edit"}
+        readOnly={!editing}
         onChange={(e) => onChange({ text: e.target.value })}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={stop}
+        onDoubleClick={(e) => {
+          stop(e);
+          setEditing(true);
+        }}
+        onBlur={() => setEditing(false)}
       />
     </div>
   );

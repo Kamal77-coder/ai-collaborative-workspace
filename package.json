@@ -1,0 +1,20 @@
+{
+  "name": "ai-collaborative-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "An AI-powered collaborative writing workspace — a Notion-meets-Writesonic app with a real Claude integration and a zero-setup demo mode.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}

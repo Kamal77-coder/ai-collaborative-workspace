@@ -5,6 +5,9 @@ import { MODEL } from "../lib/ai.js";
 export default function SettingsModal({ settings, onSave, onClose }) {
   const [apiKey, setApiKey] = useState(settings.apiKey || "");
   const [demoMode, setDemoMode] = useState(settings.demoMode);
+  const [showCollaborators, setShowCollaborators] = useState(
+    settings.showCollaborators ?? false
+  );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -47,6 +50,18 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </span>
         </label>
 
+        <label className="field-inline">
+          <input
+            type="checkbox"
+            checked={showCollaborators}
+            onChange={(e) => setShowCollaborators(e.target.checked)}
+          />
+          <span>
+            Show collaborators — simulated teammate avatars and moving live
+            cursors (for demoing real-time collaboration)
+          </span>
+        </label>
+
         <div className="model-note">
           Model: <code>{MODEL}</code> · streaming · adaptive thinking
         </div>
@@ -57,7 +72,9 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </button>
           <button
             className="btn primary"
-            onClick={() => onSave({ apiKey: apiKey.trim(), demoMode })}
+            onClick={() =>
+              onSave({ apiKey: apiKey.trim(), demoMode, showCollaborators })
+            }
           >
             Save
           </button>

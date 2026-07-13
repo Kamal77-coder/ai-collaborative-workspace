@@ -19,7 +19,13 @@ export default function App() {
   const [state, setState] = useState(() => loadWorkspace() || seedWorkspace());
   const [settings, setSettings] = useState(() => {
     const s = loadSettings();
-    return { apiKey: s.apiKey ?? envKey, demoMode: s.demoMode ?? !envKey };
+    return {
+      apiKey: s.apiKey ?? envKey,
+      demoMode: s.demoMode ?? !envKey,
+      // Simulated teammates (presence avatars + live cursors) are off by
+      // default so nothing moves on its own during a demo/walkthrough.
+      showCollaborators: s.showCollaborators ?? false,
+    };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presence, setPresence] = useState(() => rollPresence());
@@ -344,7 +350,7 @@ export default function App() {
           </div>
         </div>
 
-        <PresenceBar presence={presence} />
+        <PresenceBar presence={presence} show={settings.showCollaborators} />
 
         <div className="topbar-right">
           <span className={`ai-badge ${usingRealAI ? "live" : "demo"}`}>
@@ -378,6 +384,7 @@ export default function App() {
               key={activeBoard.id}
               board={activeBoard}
               presence={presence}
+              showCursors={settings.showCollaborators}
               selectedNoteId={selectedNoteId}
               onSelectNote={setSelectedNoteId}
               onAddNote={addNote}

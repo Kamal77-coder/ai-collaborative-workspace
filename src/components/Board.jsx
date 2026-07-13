@@ -23,6 +23,7 @@ const TOOLS = [
 export default function Board({
   board,
   presence,
+  showCursors,
   selectedNoteId,
   onSelectNote,
   onAddNote,
@@ -315,7 +316,7 @@ export default function Board({
           ))}
         </div>
 
-        <Cursors surfaceRef={surfaceRef} presence={presence} />
+        {showCursors && <Cursors surfaceRef={surfaceRef} presence={presence} />}
 
         {board.nodes.length === 0 && drawings.length === 0 && (
           <div className="board-hint">

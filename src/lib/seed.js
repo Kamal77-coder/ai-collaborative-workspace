@@ -7,13 +7,6 @@ let idCounter = 0;
 export const uid = (prefix = "id") =>
   `${prefix}_${Date.now().toString(36)}_${(idCounter++).toString(36)}`;
 
-export const COLLABORATORS = [
-  { id: "u_maya", name: "Maya Chen", initials: "MC", color: "#6366f1" },
-  { id: "u_devon", name: "Devon Park", initials: "DP", color: "#ec4899" },
-  { id: "u_aria", name: "Aria Silva", initials: "AS", color: "#10b981" },
-  { id: "u_you", name: "You", initials: "YO", color: "#f59e0b" },
-];
-
 /** Sticky-note colors used on boards. */
 export const NOTE_COLORS = [
   "#fde68a", // amber
@@ -23,16 +16,6 @@ export const NOTE_COLORS = [
   "#ddd6fe", // violet
   "#fed7aa", // orange
 ];
-
-const STATUSES = ["editing", "viewing", "idle", "commenting"];
-
-/** Randomly re-roll the presence status of the (fake) teammates. */
-export function rollPresence() {
-  return COLLABORATORS.filter((c) => c.id !== "u_you").map((c) => ({
-    ...c,
-    status: STATUSES[Math.floor(Math.random() * STATUSES.length)],
-  }));
-}
 
 export function seedWorkspace() {
   const now = Date.now();
@@ -44,23 +27,8 @@ export function seedWorkspace() {
       {
         id: "doc_welcome",
         title: "Welcome to Synapse",
-        content: `# Welcome to Synapse ✨
-
-Synapse is a collaborative workspace with an AI assistant built in.
-
-## Documents
-1. Select some text (or none) and click an assistant action like **Improve** or **Summarize**.
-2. Generate fresh copy from a **template** — blog intros, product descriptions, ad copy, and more.
-3. Leave **comments** in the right rail and watch teammate presence up top.
-
-## Boards
-Switch to a **Board** in the sidebar for a visual whiteboard: drag sticky notes,
-pan and zoom the canvas, and let AI **generate ideas**, **expand a note**, or
-**summarize the whole board into a document**.
-
-The assistant runs on Claude when you add an API key in **Settings** — otherwise it uses a built-in demo mode so you can explore instantly.
-
-> Tip: everything is saved to your browser automatically.`,
+        content: `<h1>Welcome to Synapse ✨</h1><p>Synapse is a collaborative workspace with an AI assistant built in.</p><h2>Documents</h2><ol><li>Select some text (or none) and click an assistant action like <strong>Improve</strong> or <strong>Summarize</strong>.</li><li>Generate fresh copy from a <strong>template</strong> — blog intros, product descriptions, ad copy, and more.</li><li>Leave <strong>comments</strong> in the right rail, snapshot the doc under <strong>History</strong>, and watch live presence up top.</li></ol><h2>Boards</h2><p>Switch to a <strong>Board</strong> in the sidebar for a visual whiteboard: draw with the pen, drag sticky notes, and let AI <strong>generate ideas</strong> or <strong>summarize the board into a document</strong>.</p><p>The assistant runs on Claude when you add an API key in <strong>Settings</strong> — otherwise it uses a built-in demo mode so you can explore instantly.</p><blockquote>Tip: open a second browser window to see real-time presence and cursors.</blockquote>`,
+        versions: [],
         comments: [
           {
             id: "c1",
@@ -76,11 +44,8 @@ The assistant runs on Claude when you add an API key in **Settings** — otherwi
       {
         id: "doc_launch",
         title: "Product launch announcement",
-        content: `# Introducing Flowlytics 2.0
-
-Draft the launch announcement here. Highlight the three headline features, keep it under 200 words, and end with a clear call to action.
-
-Delete this and start writing — or hit **Generate** in the assistant to get a first draft.`,
+        content: `<h1>Introducing Flowlytics 2.0</h1><p>Draft the launch announcement here. Highlight the three headline features, keep it under 200 words, and end with a clear call to action.</p><p>Delete this and start writing — or hit <strong>Generate</strong> in the assistant to get a first draft.</p>`,
+        versions: [],
         comments: [],
         createdAt: now - 1000 * 60 * 60 * 5,
         updatedAt: now - 1000 * 60 * 60 * 5,

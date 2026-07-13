@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadWorkspace,
   saveWorkspace,
   loadSettings,
   saveSettings,
 } from "./lib/storage.js";
-import { seedWorkspace, uid, rollPresence, NOTE_COLORS } from "./lib/seed.js";
+import { seedWorkspace, uid, NOTE_COLORS } from "./lib/seed.js";
+import { Realtime, makeIdentity } from "./lib/realtime.js";
+import { renderMarkdown } from "./lib/markdown.js";
 import Sidebar from "./components/Sidebar.jsx";
 import Editor from "./components/Editor.jsx";
 import Board from "./components/Board.jsx";
 import RightRail from "./components/RightRail.jsx";
 import PresenceBar from "./components/PresenceBar.jsx";
+import LiveCursors from "./components/LiveCursors.jsx";
 import SettingsModal from "./components/SettingsModal.jsx";
 
 const envKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
@@ -22,22 +25,55 @@ export default function App() {
     return {
       apiKey: s.apiKey ?? envKey,
       demoMode: s.demoMode ?? !envKey,
-      // Simulated teammates (presence avatars + live cursors) are off by
-      // default so nothing moves on its own during a demo/walkthrough.
-      showCollaborators: s.showCollaborators ?? false,
+      // Real presence + live cursors. On by default — with the WebSocket
+      // transport these only appear when another person is actually connected,
+      // so there's nothing distracting when you're alone.
+      showCollaborators: s.showCollaborators ?? true,
     };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [presence, setPresence] = useState(() => rollPresence());
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [selectedNoteId, setSelectedNoteId] = useState(null);
+
+  // Rich-text editor (TipTap) — the live instance plus derived text used by the
+  // AI assistant and word count.
+  const editorRef = useRef(null);
+  const [docText, setDocText] = useState("");
+  const [selectedText, setSelectedText] = useState("");
+
+  // Realtime collaboration (presence + live cursors) over WebSocket.
+  const identity = useRef(null);
+  if (!identity.current) identity.current = makeIdentity();
+  const rtRef = useRef(null);
+  const [users, setUsers] = useState([]);
+  const [remoteCursors, setRemoteCursors] = useState({});
+  const [rtConnected, setRtConnected] = useState(false);
+  const workspaceRef = useRef(null);
 
   useEffect(() => saveWorkspace(state), [state]);
   useEffect(() => saveSettings(settings), [settings]);
 
+  // Connect once; wire presence + cursor events.
   useEffect(() => {
-    const t = setInterval(() => setPresence(rollPresence()), 6000);
-    return () => clearInterval(t);
+    const rt = new Realtime(identity.current);
+    rtRef.current = rt;
+    const offs = [
+      rt.on("presence", (list) => setUsers(list)),
+      rt.on("status", ({ connected }) => setRtConnected(connected)),
+      rt.on("cursor", (m) =>
+        setRemoteCursors((c) => ({ ...c, [m.id]: { user: m.user, x: m.x, y: m.y } }))
+      ),
+      rt.on("cursor-leave", (m) =>
+        setRemoteCursors((c) => {
+          const n = { ...c };
+          delete n[m.id];
+          return n;
+        })
+      ),
+    ];
+    return () => {
+      offs.forEach((off) => off());
+      rt.destroy();
+    };
   }, []);
 
   const onBoard = state.activeView === "boards";
@@ -51,6 +87,20 @@ export default function App() {
   );
 
   const usingRealAI = !settings.demoMode && !!settings.apiKey;
+
+  // Join a realtime room per open document / board so presence and cursors are
+  // scoped to whoever is viewing the same item.
+  const room = onBoard ? `board:${state.activeBoardId}` : `doc:${state.activeDocId}`;
+  useEffect(() => {
+    rtRef.current?.join(room);
+    setRemoteCursors({});
+  }, [room]);
+
+  const onWorkspaceMouseMove = (e) => {
+    if (!settings.showCollaborators || !workspaceRef.current) return;
+    const rect = workspaceRef.current.getBoundingClientRect();
+    rtRef.current?.cursor(e.clientX - rect.left, e.clientY - rect.top);
+  };
 
   /* ---------------------------------------------------------------- helpers */
 
@@ -78,7 +128,7 @@ export default function App() {
   );
 
   const selectDoc = useCallback((id) => {
-    setSelection({ start: 0, end: 0 });
+    setSelectedText("");
     setState((s) => ({ ...s, activeView: "docs", activeDocId: id }));
   }, []);
 
@@ -88,6 +138,7 @@ export default function App() {
       title: "Untitled document",
       content: "",
       comments: [],
+      versions: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -111,14 +162,15 @@ export default function App() {
     });
   }, []);
 
-  // Create a document from AI-generated text (used by the board summary action).
+  // Create a document from AI-generated Markdown (used by the board summary).
   const createDocFromText = useCallback(
-    (title, content) => {
+    (title, markdown) => {
       const doc = {
         id: uid("doc"),
         title,
-        content,
+        content: renderMarkdown(markdown), // stored as HTML for the rich editor
         comments: [],
+        versions: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -135,39 +187,66 @@ export default function App() {
 
   /* ----------------------------------------------- editor text operations */
 
-  const insertText = useCallback(
-    (text) => {
-      if (!activeDoc) return;
-      const { end } = selection;
-      const c = activeDoc.content;
-      const at = Math.min(end, c.length);
-      const next = c.slice(0, at) + text + c.slice(at);
-      setContent(next);
-      const pos = at + text.length;
-      setSelection({ start: pos, end: pos });
+  // Editor lifecycle: keep content (HTML), plain text, and selection in sync.
+  const handleEditorReady = useCallback((editor) => {
+    editorRef.current = editor;
+  }, []);
+
+  const handleEditorUpdate = useCallback(
+    ({ html, text }) => {
+      setContent(html);
+      setDocText(text);
     },
-    [activeDoc, selection, setContent]
+    [setContent]
   );
+
+  // Snapshot the current document into its version history.
+  const saveVersion = useCallback(
+    (label) => {
+      if (!activeDoc) return;
+      patchActiveDoc({
+        versions: [
+          { id: uid("v"), at: Date.now(), label, content: activeDoc.content },
+          ...(activeDoc.versions || []),
+        ].slice(0, 50),
+      });
+    },
+    [activeDoc, patchActiveDoc]
+  );
+
+  const restoreVersion = useCallback(
+    (vid) => {
+      const v = (activeDoc?.versions || []).find((x) => x.id === vid);
+      if (!v || !editorRef.current) return;
+      saveVersion("before restore");
+      editorRef.current.commands.setContent(v.content);
+      setContent(v.content);
+    },
+    [activeDoc, saveVersion, setContent]
+  );
+
+  // AI insert/replace route through the live editor (content is Markdown → HTML).
+  const insertText = useCallback((markdown) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.chain().focus().insertContent(renderMarkdown(markdown)).run();
+  }, []);
 
   const replaceText = useCallback(
-    (text) => {
-      if (!activeDoc) return;
-      const { start, end } = selection;
-      const c = activeDoc.content;
-      if (start !== end) {
-        setContent(c.slice(0, start) + text + c.slice(end));
-        setSelection({ start, end: start + text.length });
+    (markdown) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const { from, to } = editor.state.selection;
+      const html = renderMarkdown(markdown);
+      if (from !== to) {
+        editor.chain().focus().insertContent(html).run(); // replaces selection
       } else {
-        setContent(text);
-        setSelection({ start: text.length, end: text.length });
+        saveVersion("before AI rewrite");
+        editor.chain().focus().setContent(html).run();
       }
     },
-    [activeDoc, selection, setContent]
+    [saveVersion]
   );
-
-  const selectedText = activeDoc
-    ? activeDoc.content.slice(selection.start, selection.end)
-    : "";
 
   /* ---------------------------------------------------------------- boards */
 
@@ -350,7 +429,12 @@ export default function App() {
           </div>
         </div>
 
-        <PresenceBar presence={presence} show={settings.showCollaborators} />
+        <PresenceBar
+          users={users}
+          you={identity.current}
+          connected={rtConnected}
+          show={settings.showCollaborators}
+        />
 
         <div className="topbar-right">
           <span className={`ai-badge ${usingRealAI ? "live" : "demo"}`}>
@@ -363,7 +447,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="workspace">
+      <div className="workspace" ref={workspaceRef} onMouseMove={onWorkspaceMouseMove}>
         <Sidebar
           documents={state.documents}
           boards={state.boards}
@@ -383,8 +467,6 @@ export default function App() {
             <Board
               key={activeBoard.id}
               board={activeBoard}
-              presence={presence}
-              showCursors={settings.showCollaborators}
               selectedNoteId={selectedNoteId}
               onSelectNote={setSelectedNoteId}
               onAddNote={addNote}
@@ -407,10 +489,11 @@ export default function App() {
           <Editor
             key={activeDoc.id}
             doc={activeDoc}
-            selection={selection}
-            onSelectionChange={setSelection}
-            onContentChange={setContent}
+            onReady={handleEditorReady}
+            onUpdate={handleEditorUpdate}
+            onSelectionChange={setSelectedText}
             onTitleChange={(title) => patchActiveDoc({ title })}
+            onSaveVersion={() => saveVersion("manual save")}
           />
         ) : (
           <main className="editor empty-state">
@@ -425,7 +508,7 @@ export default function App() {
           mode={onBoard ? "board" : "doc"}
           settings={settings}
           /* doc mode */
-          docContent={activeDoc?.content || ""}
+          docContent={docText}
           selectedText={selectedText}
           onInsert={insertText}
           onReplace={replaceText}
@@ -433,6 +516,9 @@ export default function App() {
           onAddComment={addComment}
           onToggleComment={toggleComment}
           onDeleteComment={deleteComment}
+          versions={activeDoc?.versions || []}
+          onSaveVersion={() => saveVersion("manual save")}
+          onRestoreVersion={restoreVersion}
           /* board mode */
           board={activeBoard}
           selectedNote={selectedNote}
@@ -442,6 +528,8 @@ export default function App() {
           activity={state.activity}
           onOpenSettings={() => setSettingsOpen(true)}
         />
+
+        {settings.showCollaborators && <LiveCursors cursors={remoteCursors} />}
       </div>
 
       {settingsOpen && (

@@ -57,8 +57,8 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             onChange={(e) => setShowCollaborators(e.target.checked)}
           />
           <span>
-            Show collaborators — simulated teammate avatars and moving live
-            cursors (for demoing real-time collaboration)
+            Show live presence &amp; cursors — real-time avatars and other
+            people's cursors (open a second window to see it)
           </span>
         </label>
 

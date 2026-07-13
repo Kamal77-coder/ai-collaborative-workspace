@@ -1,41 +1,70 @@
-import { useEffect, useRef, useState } from "react";
-import { renderMarkdown } from "../lib/markdown.js";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 
 /**
- * Center pane: title + Markdown body editor with a live-preview toggle.
- * Selection is lifted to the parent so the AI assistant can insert/replace text.
+ * Rich-text document editor built on TipTap (ProseMirror). Provides a WYSIWYG
+ * surface with a formatting toolbar and built-in undo/redo (from StarterKit's
+ * history). Content is HTML, reported to the parent on every update.
  */
 export default function Editor({
   doc,
-  selection,
+  onReady,
+  onUpdate,
   onSelectionChange,
-  onContentChange,
   onTitleChange,
+  onSaveVersion,
 }) {
-  const textareaRef = useRef(null);
-  const [preview, setPreview] = useState(false);
+  const editor = useEditor({
+    extensions: [
+      // StarterKit ships its own link in v3 — disable it so our configured
+      // Link (below) is the single source of truth and there's no duplicate.
+      StarterKit.configure({ link: false }),
+      Link.configure({ openOnClick: false, autolink: true }),
+      Placeholder.configure({
+        placeholder: "Start writing, or ask the assistant to draft something…",
+      }),
+    ],
+    content: doc.content || "",
+    onCreate: ({ editor }) => {
+      onReady?.(editor);
+      onUpdate?.({ html: editor.getHTML(), text: editor.getText() });
+    },
+    onUpdate: ({ editor }) => {
+      onUpdate?.({ html: editor.getHTML(), text: editor.getText() });
+    },
+    onSelectionUpdate: ({ editor }) => {
+      const { from, to } = editor.state.selection;
+      onSelectionChange?.(editor.state.doc.textBetween(from, to, " "));
+    },
+  });
 
-  // When the parent changes the selection programmatically (e.g. after an AI
-  // insert), reflect it in the actual textarea.
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el || preview) return;
-    if (
-      el.selectionStart !== selection.start ||
-      el.selectionEnd !== selection.end
-    ) {
-      el.setSelectionRange(selection.start, selection.end);
+  const setLink = () => {
+    if (!editor) return;
+    const prev = editor.getAttributes("link").href;
+    const url = window.prompt("Link URL", prev || "https://");
+    if (url === null) return;
+    if (url === "") {
+      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      return;
     }
-  }, [selection, preview, doc.content]);
-
-  const syncSelection = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    onSelectionChange({ start: el.selectionStart, end: el.selectionEnd });
+    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   };
 
-  const words = (doc.content.trim().match(/\S+/g) || []).length;
-  const chars = doc.content.length;
+  const words = editor ? (editor.getText().trim().match(/\S+/g) || []).length : 0;
+
+  const btn = (active, onClick, label, title, disabled = false) => (
+    <button
+      className={`fmt-btn ${active ? "active" : ""}`}
+      title={title}
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault()} // keep the editor selection
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <main className="editor">
@@ -46,51 +75,48 @@ export default function Editor({
           placeholder="Untitled document"
           onChange={(e) => onTitleChange(e.target.value)}
         />
-        <button
-          className={`btn ghost tiny ${preview ? "active" : ""}`}
-          onClick={() => setPreview((p) => !p)}
-        >
-          {preview ? "✎ Edit" : "👁 Preview"}
-        </button>
       </div>
 
+      {editor && (
+        <div className="fmt-toolbar">
+          {btn(false, () => editor.chain().focus().undo().run(), "↶", "Undo (⌘Z)", !editor.can().undo())}
+          {btn(false, () => editor.chain().focus().redo().run(), "↷", "Redo (⌘⇧Z)", !editor.can().redo())}
+          <span className="fmt-sep" />
+          {btn(editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "B", "Bold")}
+          {btn(editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "I", "Italic")}
+          {btn(editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), "S", "Strikethrough")}
+          {btn(editor.isActive("code"), () => editor.chain().focus().toggleCode().run(), "‹›", "Inline code")}
+          <span className="fmt-sep" />
+          {btn(editor.isActive("heading", { level: 1 }), () => editor.chain().focus().toggleHeading({ level: 1 }).run(), "H1", "Heading 1")}
+          {btn(editor.isActive("heading", { level: 2 }), () => editor.chain().focus().toggleHeading({ level: 2 }).run(), "H2", "Heading 2")}
+          {btn(editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), "•", "Bullet list")}
+          {btn(editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), "1.", "Numbered list")}
+          {btn(editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), "❝", "Quote")}
+          {btn(editor.isActive("link"), setLink, "🔗", "Link")}
+          <span className="fmt-sep" />
+          {btn(false, onSaveVersion, "⑃ Save version", "Snapshot this document to history")}
+        </div>
+      )}
+
       <div className="editor-body">
-        {preview ? (
-          <div
-            className="markdown-preview"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.content) }}
-          />
-        ) : (
-          <textarea
-            ref={textareaRef}
-            className="editor-textarea"
-            value={doc.content}
-            placeholder="Start writing, or ask the assistant to draft something…"
-            onChange={(e) => {
-              // Update content AND the caret together, so the selection-sync
-              // effect doesn't yank the cursor back to a stale position.
-              onSelectionChange({
-                start: e.target.selectionStart,
-                end: e.target.selectionEnd,
-              });
-              onContentChange(e.target.value);
-            }}
-            onSelect={syncSelection}
-            onKeyUp={syncSelection}
-            onClick={syncSelection}
-            spellCheck
-          />
-        )}
+        <EditorContent editor={editor} className="tiptap-host" />
       </div>
 
       <div className="editor-foot">
-        <span>{words} words · {chars} chars</span>
-        {selection.end > selection.start && (
-          <span className="sel-hint">
-            {selection.end - selection.start} selected — AI actions apply to the selection
-          </span>
-        )}
+        <span>{words} words</span>
+        {selectedHint(editor)}
       </div>
     </main>
+  );
+}
+
+function selectedHint(editor) {
+  if (!editor) return null;
+  const { from, to } = editor.state.selection;
+  if (to <= from) return null;
+  return (
+    <span className="sel-hint">
+      {to - from} selected — AI actions apply to the selection
+    </span>
   );
 }

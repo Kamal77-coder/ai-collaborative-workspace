@@ -15,7 +15,10 @@ visual whiteboard. Think Notion + FigJam with an AI copywriter. Built with
 
 - **Multi-document workspace** — create, rename, and delete documents; everything
   autosaves to your browser.
-- **Markdown editor** with a live preview toggle and word/character counts.
+- **Rich-text editor** (TipTap / ProseMirror) — WYSIWYG formatting (bold, italic,
+  headings, lists, quotes, inline code, links) with a toolbar, plus **undo/redo**.
+- **Version history** — snapshot a document at any point and restore it later;
+  a snapshot is also taken automatically before the AI rewrites the whole doc.
 - **AI writing assistant** (the core feature):
   - Quick actions on your document or selection: **Improve**, **Summarize**,
     **Expand**, **Fix grammar**, **Continue writing**.
@@ -29,10 +32,12 @@ visual whiteboard. Think Notion + FigJam with an AI copywriter. Built with
 - **AI whiteboard** — a pannable, zoomable canvas of draggable, editable, colored
   sticky notes. AI actions: **generate ideas** into notes, **expand** a selected
   note into related notes, and **summarize the whole board into a document**.
-- **Simulated real-time collaboration** — teammate avatars with live presence
-  (editing / viewing / commenting), animated **live cursors** on the board, and
-  an activity feed.
-- **Comments** — threaded comments per document with resolve/reopen.
+- **Real-time collaboration over WebSockets** — a small Node `ws` server relays
+  **presence** (avatars for everyone viewing the same doc/board) and **live
+  cursors** across browser windows. Open a second window to see it; each tab is a
+  distinct user. Falls back to single-player if the server isn't running.
+- **Comments** — threaded comments per document with resolve/reopen, plus a
+  workspace activity feed.
 - **Real Claude integration + demo fallback** — add an API key for real,
   context-aware generation, or explore with built-in demo responses.
 
@@ -43,7 +48,13 @@ npm install
 npm run dev
 ```
 
-Then open the app (Vite prints the URL, usually http://localhost:5173).
+`npm run dev` starts **both** the Vite web app (http://localhost:5173) and the
+realtime WebSocket server (ws://localhost:8787) together. To run them separately:
+`npm run web` and `npm run server`.
+
+> The app works fully without the server — presence and live cursors simply stay
+> offline (indicated by the dot next to the avatars). Open **two browser windows**
+> to see real-time presence and cursors.
 
 The app starts in **demo mode** with canned responses. To use real AI:
 
@@ -72,36 +83,44 @@ Or set the key at build time — copy `.env.example` to `.env.local` and fill in
 ## Project structure
 
 ```
+server/
+  index.js                 # WebSocket relay: presence + live cursors (rooms)
 src/
-  App.jsx                  # state, persistence, editor text operations
+  App.jsx                  # state, persistence, realtime, editor/version ops
   lib/
     ai.js                  # Claude streaming client
-    demo.js                # canned/mock streaming responses
+    realtime.js            # WebSocket client (identity, rooms, cursors, reconnect)
+    demo.js                # canned/mock AI responses
     prompts.js             # system prompt, actions, templates, message builders
-    markdown.js            # tiny Markdown → HTML renderer
+    markdown.js            # tiny Markdown → HTML renderer (AI output → editor)
     storage.js             # localStorage persistence
-    seed.js                # first-run seed data + simulated presence
+    seed.js                # first-run seed data
   components/
     Sidebar.jsx            # documents + boards lists
-    Editor.jsx             # title + Markdown editor with preview
-    Board.jsx              # whiteboard canvas (pan/zoom, notes, live cursors)
+    Editor.jsx             # TipTap rich-text editor + formatting toolbar
+    Board.jsx              # whiteboard canvas (pen/shapes, notes, pan/zoom)
     RightRail.jsx          # tabbed rail, mode-aware (doc vs board)
     AssistantPanel.jsx     # the document AI assistant UI
     BoardAssistant.jsx     # the board AI tools (ideas / expand / summarize)
     CommentsPanel.jsx      # threaded comments
+    VersionHistory.jsx     # document snapshots + restore
     ActivityFeed.jsx       # workspace activity
-    PresenceBar.jsx        # simulated collaborator presence
-    SettingsModal.jsx      # API key + demo toggle
+    PresenceBar.jsx        # real presence avatars + connection status
+    LiveCursors.jsx        # remote cursor overlay
+    SettingsModal.jsx      # API key, demo toggle, presence toggle
 ```
 
 ## Tech stack
 
-React 18 · Vite 5 · the Anthropic Messages API (streaming). No UI framework —
+React 18 · Vite 5 · **TipTap / ProseMirror** (rich text) · **`ws`** (WebSocket
+realtime server) · the Anthropic Messages API (streaming). No UI framework —
 hand-written CSS with light/dark support.
 
 ## Possible extensions
 
-- Real-time multiplayer via a CRDT (Yjs) + WebSocket backend.
-- Server-side API proxy so keys never touch the client.
-- Rich-text editing (TipTap/ProseMirror) instead of Markdown source.
+- **Conflict-free multiplayer editing** — the current WebSocket layer syncs
+  presence and cursors; adding a CRDT (Yjs) would sync document *content* too,
+  with per-caret cursors inside the text.
+- Server-side API proxy so the Claude key never touches the client.
+- Persistence beyond `localStorage` (a real backend + auth).
 - Export to PDF/DOCX via Claude's code-execution or a server renderer.

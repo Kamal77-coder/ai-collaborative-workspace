@@ -3,6 +3,7 @@ import AssistantPanel from "./AssistantPanel.jsx";
 import BoardAssistant from "./BoardAssistant.jsx";
 import CommentsPanel from "./CommentsPanel.jsx";
 import ActivityFeed from "./ActivityFeed.jsx";
+import VersionHistory from "./VersionHistory.jsx";
 
 /**
  * Right rail. In "doc" mode it shows the writing assistant, comments, and
@@ -43,6 +44,12 @@ export default function RightRail(props) {
             >
               💬 Comments{commentCount > 0 && <span className="pill">{commentCount}</span>}
             </button>
+            <button
+              className={tab === "history" ? "active" : ""}
+              onClick={() => setTab("history")}
+            >
+              🕑 History
+            </button>
           </>
         )}
         <button
@@ -80,6 +87,13 @@ export default function RightRail(props) {
             onAdd={props.onAddComment}
             onToggle={props.onToggleComment}
             onDelete={props.onDeleteComment}
+          />
+        )}
+        {tab === "history" && (
+          <VersionHistory
+            versions={props.versions}
+            onSave={props.onSaveVersion}
+            onRestore={props.onRestoreVersion}
           />
         )}
         {tab === "activity" && <ActivityFeed activity={props.activity} />}

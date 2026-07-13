@@ -22,8 +22,6 @@ const TOOLS = [
  */
 export default function Board({
   board,
-  presence,
-  showCursors,
   selectedNoteId,
   onSelectNote,
   onAddNote,
@@ -316,8 +314,6 @@ export default function Board({
           ))}
         </div>
 
-        {showCursors && <Cursors surfaceRef={surfaceRef} presence={presence} />}
-
         {board.nodes.length === 0 && drawings.length === 0 && (
           <div className="board-hint">
             Pick a tool to draw, double-click to add a note, or use the AI panel →
@@ -428,56 +424,6 @@ function Note({ note, selected, onDragStart, onChange, onDelete }) {
         onMouseDown={(e) => e.stopPropagation()}
       />
     </div>
-  );
-}
-
-/* ----------------------------------------- simulated live teammate cursors */
-
-function Cursors({ surfaceRef, presence }) {
-  const active = presence.filter((p) => p.status === "editing").slice(0, 2);
-  const people = active.length ? active : presence.slice(0, 1);
-  const [pos, setPos] = useState({});
-
-  useEffect(() => {
-    const move = () => {
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const next = {};
-      people.forEach((p) => {
-        next[p.id] = {
-          x: 40 + Math.random() * (rect.width - 120),
-          y: 60 + Math.random() * (rect.height - 140),
-        };
-      });
-      setPos(next);
-    };
-    move();
-    const t = setInterval(move, 1600);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presence]);
-
-  return (
-    <>
-      {people.map((p) => {
-        const pt = pos[p.id];
-        if (!pt) return null;
-        return (
-          <div
-            key={p.id}
-            className="live-cursor"
-            style={{ transform: `translate(${pt.x}px, ${pt.y}px)`, color: p.color }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={p.color}>
-              <path d="M4 2l7 18 2.5-7.5L21 10z" />
-            </svg>
-            <span className="cursor-tag" style={{ background: p.color }}>
-              {p.name}
-            </span>
-          </div>
-        );
-      })}
-    </>
   );
 }
 

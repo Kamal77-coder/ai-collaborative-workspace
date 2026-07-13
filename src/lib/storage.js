@@ -3,7 +3,7 @@
  * The whole workspace is a single JSON blob keyed by APP_KEY.
  */
 
-const APP_KEY = "synapse.workspace.v2";
+const APP_KEY = "synapse.workspace.v3";
 const SETTINGS_KEY = "synapse.settings.v1";
 
 export function loadWorkspace() {
